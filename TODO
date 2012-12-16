@@ -1,0 +1,4 @@
+- Implement the optional timeout.
+- Handle multiple requests in one connection by adding a keep-alive flag.
+- Distribute storage by allowing the API to request on multiple servers.
+

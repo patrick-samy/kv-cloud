@@ -1,4 +1,5 @@
 #include <unistd.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>
@@ -6,23 +7,83 @@
 #include <arpa/inet.h>
 
 #include "server.h"
+#include "protocol.h"
+#include "storage.h"
 
 static int handle_client(int client_socket)
 {
-    int     result = 0;
-    uint8_t command;
+    int                     result = 0;
+    struct s_request_header header;
+    char*                   key = NULL;
+    char*                   value = NULL;
 
-    while (recv(client_socket, &command, sizeof(uint8_t), 0) > 0)
+    result = recv(client_socket, &header.command, sizeof(header.command), MSG_WAITALL);
+    if (result != sizeof(header.command))
     {
-        printf("kvcloud: recv %d %c\n", command, command);
+        fprintf(stderr, "Unable to read command\n");
+        return 3;
+    }
+ 
+    result = recv(client_socket, &header, sizeof(header), MSG_WAITALL);
+    if (result != sizeof(header))
+    {
+        fprintf(stderr, "Unable to read command\n");
+        return 3;
     }
 
-    result = close(client_socket);
-    if (result < 0)
+    key = malloc(header.k.key_length * sizeof(char));
+    if (value == NULL)
     {
-        fprintf(stderr, "Unable to close client socket.\n");
-        return 2;
+        fprintf(stderr, "Out of memory while allocating %d bytes for the requested key\n", header.k.key_length);
+        return 4;
     }
+
+    if (header.command & COMMAND_SET)
+    {
+        result = recv(client_socket, &header.kv.value_length, sizeof(header.kv.value_length), MSG_WAITALL);
+        if (result != sizeof(header.kv.value_length))
+        {
+            fprintf(stderr, "Unable to read command\n");
+            return 3;
+        }
+
+        value = malloc(header.kv.value_length * sizeof(char));
+        if (value == NULL)
+        {
+            fprintf(stderr, "Out of memory while allocating %d bytes for the requested key\n", header.kv.value_length);
+            return 4;
+        }
+    }
+
+    result = recv(client_socket, key, header.k.key_length, MSG_WAITALL);
+    if (result != header.k.key_length)
+    {
+        fprintf(stderr, "Unable to read key\n");
+        return 3;
+    }
+
+    if (header.command & COMMAND_GET)
+    {
+        value = storage_get(key);
+    }
+
+    if (header.command & COMMAND_SET)
+    {
+        result = recv(client_socket, value, header.k.key_length, MSG_WAITALL);
+        if (result != header.kv.value_length)
+        {
+            fprintf(stderr, "Unable to read value\n");
+            return 3;
+        }
+
+        storage_set(key, value);
+    }
+
+    if (header.command & COMMAND_DELETE)
+    {
+        storage_delete(key);
+    }
+
 
     return 0;
 }
@@ -52,6 +113,7 @@ int start_server()
     if (result < 0)
     {
         fprintf(stderr, "Unable to bind listening socket on port %d\n", listening_port);
+        close(listening_socket);
         return 2;
     }
 
@@ -59,6 +121,7 @@ int start_server()
     if (result < 0)
     {
         fprintf(stderr, "Unable to start listening on port %d\n", listening_port);
+        close(listening_socket);
         return 2;
     }
 
@@ -69,14 +132,23 @@ int start_server()
         if (client_socket < 0)
         {
             fprintf(stderr, "Unable to accept on listening socket\n");
+            close(listening_socket);
             return 2;
         }
 
         result = handle_client(client_socket);
         if (result != 0)
         {
+            close(client_socket);
             close(listening_socket);
             return result;
+        }
+
+        result = close(client_socket);
+        if (result < 0)
+        {
+            fprintf(stderr, "Unable to close client socket.\n");
+            return 2;
         }
     }
 
