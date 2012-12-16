@@ -10,11 +10,11 @@ char* storage_get(char* key)
 
 void storage_set(char* key, char* value)
 {
-
+    printf("set %s => %s\n", key, value);
 }
 
 void storage_delete(char* key)
 {
-
+    printf("delete %s\n", key);
 }
 

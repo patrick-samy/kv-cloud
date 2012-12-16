@@ -100,6 +100,7 @@ char* kvcloud_get(const char* key)
     if (result != header.k.key_length)
     {
         fprintf(stderr, "Unable to send key for request.\n");
+        return NULL;
     }
 
     result = recv(g_client_socket, &response_header, sizeof(struct s_response_header), MSG_WAITALL);
@@ -136,11 +137,68 @@ char* kvcloud_get(const char* key)
 
 void kvcloud_set(const char* key, const char* value)
 {
+    int                         result;
+    struct s_request_header     header;
 
+    if (g_client_socket < 0)
+    {
+        fprintf(stderr, "A connection must be established before calling kvcloud_set().\n");
+        return;
+    }
+
+    memset(&header, 0, sizeof(struct s_request_header));
+    header.command = COMMAND_SET;
+    header.kv.key_length = strlen(key);
+    header.kv.value_length = strlen(value);
+    result = send(g_client_socket, &header, sizeof(header.command) + sizeof(header.kv), 0);
+    if (result != sizeof(header.command) + sizeof(header.kv))
+    {
+        fprintf(stderr, "Unable to send get request.\n");
+        return;
+    }
+
+    result = send(g_client_socket, key, header.kv.key_length, 0);
+    if (result != header.kv.key_length)
+    {
+        fprintf(stderr, "Unable to send key for request.\n");
+        return;
+    }
+
+    result = send(g_client_socket, value, header.kv.value_length, 0);
+    if (result != header.kv.value_length)
+    {
+        fprintf(stderr, "Unable to send value for request.\n");
+        return;
+    }
 }
 
 void kvcloud_delete(const char* key)
 {
+    int                         result;
+    struct s_request_header     header;
+
+    if (g_client_socket < 0)
+    {
+        fprintf(stderr, "A connection must be established before calling kvcloud_delete().\n");
+        return;
+    }
+
+    memset(&header, 0, sizeof(struct s_request_header));
+    header.command = COMMAND_DELETE;
+    header.kv.key_length = strlen(key);
+    result = send(g_client_socket, &header, sizeof(header.command) + sizeof(header.k), 0);
+    if (result != sizeof(header.command) + sizeof(header.k))
+    {
+        fprintf(stderr, "Unable to send get request.\n");
+        return;
+    }
+
+    result = send(g_client_socket, key, header.k.key_length, 0);
+    if (result != header.k.key_length)
+    {
+        fprintf(stderr, "Unable to send key for request.\n");
+        return;
+    }
 
 }
 

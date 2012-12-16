@@ -66,8 +66,8 @@ static int handle_client(int client_socket)
             fprintf(stderr, "Unable to read key.\n");
             return 3;
         }
-
         key[header.k.key_length] = 0;
+
         if (header.command & COMMAND_GET)
         {
             struct s_response_header response_header;
@@ -103,8 +103,8 @@ static int handle_client(int client_socket)
                 fprintf(stderr, "Unable to read value\n");
                 return 3;
             }
-
             value[header.kv.value_length] = 0;
+
             storage_set(key, value);
         }
 
