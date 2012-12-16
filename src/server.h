@@ -3,6 +3,6 @@
 
 # define DEFAULT_LISTEN_QUEUE   1024
 
-int start_server();
+int start_server(unsigned short listening_port);
 
 #endif /* !SERVER_H_ */

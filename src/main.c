@@ -4,18 +4,21 @@
 #include <getopt.h>
 
 #include "server.h"
+#include "protocol.h"
 
 int main(int argc, char** argv)
 {
     int                     result = 0;
+    unsigned short          port = DEFAULT_PORT;
     int                     option_index = 1;
     static struct option    long_options[] =
     {
         {"daemonize", no_argument, 0, 'd'},
+        {"port", required_argument, 0, 'p'},
         {0, 0, 0, 0}
     };
 
-    result = getopt_long(argc, argv, "d", long_options, &option_index);
+    result = getopt_long(argc, argv, "dp:", long_options, &option_index);
     while (result != -1)
     {
         
@@ -28,6 +31,10 @@ int main(int argc, char** argv)
                 printf("daemonize.\n");
                 break;
 
+            case 'p':
+                port = atoi(argv[option_index + 1]);
+                break;
+
             default:
                 fprintf(stderr, "Unhandled getopt return code: %d.\n", result);
         }
@@ -35,7 +42,8 @@ int main(int argc, char** argv)
         result = getopt_long(argc, argv, "d", long_options, &option_index);
     }
 
-    result = start_server();
+    printf("Starting server on port %d.\n", port);
+    result = start_server(port);
 
     return result;
 }

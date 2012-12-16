@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "api.h"
 
@@ -22,12 +23,67 @@ int main(int argc, char** argv)
     printf("Connected to %s on port %s\n", argv[1], argv[2]);
     do
     {
-        int len = getline(&line, &line_length, stdin);
-
-        printf("command %s", line);
-
+        int         len = getline(&line, &line_length, stdin);
+        const char* delimiter = " \n";
+        char*       command;
+        
         if (len <= 1)
             break;
+
+        command = strtok(line, delimiter);
+        if (command == NULL)
+        {
+            fprintf(stderr, "Unable to parse command.\n");
+            continue;
+        }
+        else if (strcmp(command, "get") == 0)
+        {
+            char* key;
+            char* value;
+
+            key = strtok(NULL, delimiter);
+            if (key == NULL)
+            {
+                fprintf(stderr, "Unable to parse key.\n");
+                continue;
+            }
+
+            value = kvcloud_get(key);
+            printf("%s => %s\n", key, value);
+        }
+        else if (strcmp(command, "set") == 0)
+        {
+            char* key;
+            char* value;
+
+            key = strtok(NULL, delimiter);
+            value = strtok(NULL, delimiter);
+            if ((key == NULL) || (value == NULL))
+            {
+                fprintf(stderr, "Unable to parse key/value.\n");
+                continue;
+            }
+
+            kvcloud_set(key, value);
+        }
+        else if (strcmp(command, "delete") == 0)
+        {
+            char* key;
+
+            key = strtok(NULL, delimiter);
+            if (key == NULL)
+            {
+                fprintf(stderr, "Unable to parse key.\n");
+                continue;
+            }
+
+            kvcloud_delete(key);
+        }
+        else
+        {
+            fprintf(stderr, "Unknown command %s\n", command);
+            continue;
+        }
     }
     while (1);
 

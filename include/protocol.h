@@ -3,7 +3,7 @@
 
 # include <stdint.h>
 
-# define DEFAULT_PORT           60000
+# define DEFAULT_PORT       60000
 
 # define COMMAND_DISCONNECT 0x01
 # define COMMAND_GET        0x02
@@ -19,10 +19,10 @@ struct s_request_header
         struct
         {
             uint32_t key_length;
-            uint32_t value_length;
         } k;
         struct
         {
+            uint32_t key_length;
             uint32_t value_length;
         } kv;
     };
