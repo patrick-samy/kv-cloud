@@ -2,19 +2,20 @@
 #include <stdio.h>
 
 #include "storage.h"
+#include "filesystem.h"
 
 char* storage_get(char* key)
 {
-    return "42";
+    return fs_search(key);
 }
 
 void storage_set(char* key, char* value)
 {
-    printf("set %s => %s\n", key, value);
+    fs_add(key, value);
 }
 
 void storage_delete(char* key)
 {
-    printf("delete %s\n", key);
+    fs_delete(key);
 }
 

@@ -106,12 +106,13 @@ static int handle_client(int client_socket)
             value[header.kv.value_length] = 0;
 
             storage_set(key, value);
+            free(value);
         }
 
         if (header.command & COMMAND_DELETE)
-        {
             storage_delete(key);
-        }
+        
+        free(key);
     }
 
     return 0;

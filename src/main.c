@@ -5,6 +5,7 @@
 
 #include "server.h"
 #include "protocol.h"
+#include "filesystem.h"
 
 int main(int argc, char** argv)
 {
@@ -18,7 +19,7 @@ int main(int argc, char** argv)
         {0, 0, 0, 0}
     };
 
-    result = getopt_long(argc, argv, "dp:", long_options, &option_index);
+    result = getopt_long(argc, argv, "dp:f", long_options, &option_index);
     while (result != -1)
     {
         
@@ -35,6 +36,10 @@ int main(int argc, char** argv)
                 port = atoi(argv[option_index + 1]);
                 break;
 
+            case 'f':
+                fs_init("kvcloud.fs");
+                break;
+
             default:
                 fprintf(stderr, "Unhandled getopt return code: %d.\n", result);
         }
@@ -42,6 +47,7 @@ int main(int argc, char** argv)
         result = getopt_long(argc, argv, "d", long_options, &option_index);
     }
 
+    fs_open("kvcloud.fs");
     printf("Starting server on port %d.\n", port);
     result = start_server(port);
 

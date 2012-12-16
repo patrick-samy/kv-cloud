@@ -8,7 +8,8 @@ $ make [all | kvcloud | libkvcloud | client]
 
 #### Testing ####
 ```sh
-$ ./kvcloud --daemonize
+# initializing the filesystem and starting server on default port 60000 (or use -p port)
+$ ./kvcloud -f
 $ LD_LIBRARY_PATH=. ./client 0.0.0.0 60000
 ```
 

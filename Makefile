@@ -10,7 +10,7 @@ CLEAN       :=
 
 # Flags
 CPPFLAGS    ?=
-CFLAGS      ?= -Wall -Werror 
+CFLAGS      ?= -Wall -Werror
 LDFLAGS     ?=
 
 #Default rule
