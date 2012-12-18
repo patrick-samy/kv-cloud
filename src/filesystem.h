@@ -2,18 +2,23 @@
 # define FILESYSTEM_H_
 
 # include <stdint.h>
+# include <stdbool.h>
+# include <sys/types.h>
 
 # include "config.h"
 
-# define BTREE_ORDER    25
+# define BTREE_ORDER        4
 
-# define NODE_INDEX     0x1
-# define NODE_BLOCK     0x2
+# define NODE_INDEX         0x1
+# define NODE_BLOCK         0x2
+# define FLAG_LEAF          0x4
+
+# define CHILDREN_PRESENT   0x1
 
 struct s_key
 {
     uint8_t size;
-    char    data[KEY_SIZE]; 
+    char    data[KEY_SIZE + 1]; 
 } __attribute__((packed));
 
 struct s_fs_node
@@ -24,9 +29,8 @@ struct s_fs_node
         struct
         {
             size_t          nb_keys;
-            struct s_key    keys[BTREE_ORDER - 1];
-            size_t          nb_children;
-            size_t          children[BTREE_ORDER];
+            struct s_key    keys[BTREE_ORDER];
+            off_t           children[BTREE_ORDER + 1];
         } index __attribute__((packed));
         struct
         {
@@ -37,8 +41,8 @@ struct s_fs_node
 
 struct s_fs_header
 {
-    size_t total_size;
-    size_t root;
+    size_t  total_size;
+    off_t   root;
 } __attribute__((packed));
 
 typedef struct
@@ -47,12 +51,12 @@ typedef struct
     struct s_fs_header  header;
 } fs_file_t;
 
-int fs_init(const char* img_filepath);
-int fs_open(const char* img_filepath);
-int fs_close();
+bool fs_init(const char* img_filepath);
+bool fs_open(const char* img_filepath);
+bool fs_close();
 char* fs_search(const char* key);
-int fs_add(const char* key, const char* data);
-int fs_delete(const char* key);
+bool fs_add(const char* key, const char* data);
+bool fs_delete(const char* key);
 
 #endif /* !FILESYSTEM_H_ */
 

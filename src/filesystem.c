@@ -5,9 +5,49 @@
 
 #include "filesystem.h"
 
-static fs_file_t* g_fs_file = NULL;
+static fs_file_t* g_fs = NULL;
 
-int fs_init(const char* img_filepath)
+static bool fs_read_index(off_t offset, struct s_fs_node* node)
+{
+    int result;
+
+    fseek(g_fs->file, offset, SEEK_SET);
+    fread(&node->type, sizeof(node->type), 1, g_fs->file);
+
+    if (node->type & NODE_INDEX)
+        result = fread(&node->index, sizeof(node->index), 1, g_fs->file);
+
+    if (result != 1)
+    {
+        fprintf(stderr, "Unable to read node.\n");
+        return false;
+    }
+
+    return true;
+}
+
+static bool fs_write_index(off_t offset, struct s_fs_node* node)
+{
+    int result;
+
+    fseek(g_fs->file, offset, SEEK_SET);
+    fwrite(&node->type, sizeof(node->type), 1, g_fs->file);
+
+    if (node->type & NODE_INDEX)
+        result = fwrite(&node->index, sizeof(node->index), 1, g_fs->file);
+    
+    if (result != 1)
+    {
+        fprintf(stderr, "Unable to read node.\n");
+        return false;
+    }
+    
+    fflush(g_fs->file);
+
+    return true;
+}
+
+bool fs_init(const char* img_filepath)
 {
     int                 result;
     struct s_fs_header  header;
@@ -18,7 +58,7 @@ int fs_init(const char* img_filepath)
     if (f == NULL)
     {
         fprintf(stderr, "Unable to open file %s\n", img_filepath);
-        return 0;
+        return false;
     }
 
     header.total_size = sizeof(header) + sizeof(root);
@@ -27,206 +67,293 @@ int fs_init(const char* img_filepath)
     result  = fwrite(&header, sizeof(struct s_fs_header), 1, f);
     if (result != 1)
     {
-        fprintf(stderr, "Unable to read fs header.\n");
+        fprintf(stderr, "Unable to read write header.\n");
         fs_close();
-        return 0;
+        return false;
     }
-
-    root.type = NODE_INDEX;
+    
+    memset(&root, 0, sizeof(root.type) + sizeof(root.index));
+    root.type = NODE_INDEX | FLAG_LEAF;
     root.index.nb_keys = 0;
-    root.index.nb_children = 0;
 
-    // TODO: Unhack
-    result = fwrite(&root.type, sizeof(root.type), 1, f);
-    result = fwrite(&root.index, sizeof(root.index), 1, f);
+    result = fwrite(&root, sizeof(root.type) + sizeof(root.index), 1, f);
     if (result != 1)
     {
-        fprintf(stderr, "Unable to read fs header.\n");
+        fprintf(stderr, "Unable to write root node.\n");
         fs_close();
-        return 0;
+        return false;
     }
 
     fclose(f);
 
-    return 1;
+    return true;
    
 }
 
-int fs_open(const char* img_filepath)
+bool fs_open(const char* img_filepath)
 {
     int result;
 
-    if (g_fs_file != NULL)
+    if (g_fs != NULL)
     {
         fprintf(stderr, "A file is already opened.\n");
-        return 0;
+        return false;
     }
 
-    g_fs_file = malloc(sizeof(fs_file_t));
-    if (g_fs_file == NULL)
+    g_fs = malloc(sizeof(fs_file_t));
+    if (g_fs == NULL)
     {
         fprintf(stderr, "Out of memory.\n");
-        return 0;
+        return false;
     }
 
-    g_fs_file->file = fopen(img_filepath, "r+");
-    if (g_fs_file->file == NULL)
+    g_fs->file = fopen(img_filepath, "r+");
+    if (g_fs->file == NULL)
     {
         fprintf(stderr, "Unable to open file %s\n", img_filepath);
-        free(g_fs_file);
-        g_fs_file = NULL;
-        return 0;
+        free(g_fs);
+        g_fs = NULL;
+        return false;
     }
 
-    result  = fread(&g_fs_file->header, sizeof(struct s_fs_header), 1, g_fs_file->file);
+    result  = fread(&g_fs->header, sizeof(struct s_fs_header), 1, g_fs->file);
     if (result != 1)
     {
         fprintf(stderr, "Unable to read fs header.\n");
         fs_close();
-        return 0;
+        return false;
     }
 
-    return 1;
+    return true;
 }
 
-int fs_close()
+bool fs_close()
 {
     int result;
 
-    if (g_fs_file == NULL)
+    if (g_fs == NULL)
     {
         fprintf(stderr, "A file must be open before calling fs_close().\n");
-        return 0;
+        return false;
     }
 
-    result = fclose(g_fs_file->file);
+    result = fclose(g_fs->file);
     if (result != 0)
     {
         fprintf(stderr, "Unable to close the filesystem file.\n");
-        return 0;
+        return false;
     }
 
-    free(g_fs_file);
-    g_fs_file = NULL;
+    free(g_fs);
+    g_fs = NULL;
 
-    return 1;
+    return true;
+}
+
+static bool fs_search_recurse(const char*       key,
+                              struct s_fs_node* node,
+                              char**            data)
+{
+    // TODO: Handle error codes
+    if (node->type & NODE_INDEX)
+    {
+        size_t  i;
+        int     distance;
+        
+        for (i = 0; i < node->index.nb_keys; ++i)
+        {
+            distance = strcmp(key, node->index.keys[i].data);
+            if (distance <= 0)
+                break;
+        }
+        
+        if (node->type & FLAG_LEAF)
+        {
+            if (distance == 0)
+            {
+                struct s_fs_node data_node;
+
+                fseek(g_fs->file, node->index.children[i], SEEK_SET);
+                fread(&data_node.block, sizeof(data_node.block), 1, g_fs->file);
+                *data = malloc(data_node.block.size + 1);
+                fread(*data, data_node.block.size + 1, 1, g_fs->file);
+
+                return true;
+            }
+        }
+        else
+        {
+            struct s_fs_node child;
+
+            fs_read_index(node->index.children[i], &child);
+            
+            return fs_search_recurse(key, &child, data);
+        }
+    }
+ 
+    return false;
 }
 
 char* fs_search(const char* key)
 {
-    int                 result;
-    struct s_fs_node    node;
+    struct s_fs_node    root;
     char*               value = NULL;
 
-    if (g_fs_file == NULL)
+    if (g_fs == NULL)
     {
         fprintf(stderr, "A file must be opened before calling fs_search().\n");
-        return 0;
+        return false;
     }
     
-    result = fseek(g_fs_file->file, g_fs_file->header.root, SEEK_SET);
-    if (result < 0)
-    {
-        fprintf(stderr, "Unable to seek.\n");
-        return 0;
-    }
+    if (!fs_read_index(g_fs->header.root, &root))
+        return false;
 
-    result = fread(&node.type, sizeof(node.type), 1, g_fs_file->file);
-    if (result != 1)
-    {
-        fprintf(stderr, "Unable to read.\n");
-        return 0;
-    }
-
-    // TODO: Unhack here
-    result = fread(&node.index, sizeof(node.index), 1, g_fs_file->file);
-    if (result != 1)
-    {
-        fprintf(stderr, "Unable to read.\n");
-        return 0;
-    }
-
-    for (size_t i = 0; i < node.index.nb_keys; ++i)
-    {
-        if ((node.index.keys[i].size == strlen(key)) &&
-            (strncmp(key, node.index.keys[i].data, node.index.keys[i].size) == 0))
-        {
-            struct s_fs_node data;
-
-            fseek(g_fs_file->file, node.index.children[i], SEEK_SET);
-            fread(&data.type, sizeof(data.type), 1, g_fs_file->file);
-            fread(&data.block, sizeof(data.block), 1, g_fs_file->file);
-            value = malloc(1 + data.block.size);
-            fread(value, data.block.size, 1, g_fs_file->file);
-            value[data.block.size] = 0;
-            break;
-        }
-    }
-
+    fs_search_recurse(key, &root, &value);
+    
     return value;
 }
 
-int fs_add(const char* key, const char* data)
+static bool fs_add_recurse(const char*          key,
+                           const char*          data,
+                           off_t                node_offset,
+                           struct s_fs_node*    node,
+                           struct s_fs_node*    r_node)
 {
-    int                 result;
-    struct s_fs_node    node;
+    bool splitted = false;
+    bool writeback = false;
 
-    if (g_fs_file == NULL)
+    // TODO: Handle error codes
+    if (node->type & NODE_INDEX)
     {
-        fprintf(stderr, "A file must be opened before calling fs_add().\n");
-        return 0;
+        size_t i;
+        
+        for (i = 0; i < node->index.nb_keys; ++i)
+        {
+            if (strcmp(key, node->index.keys[i].data) <= 0)
+                break;
+        }
+        
+        if (node->type & FLAG_LEAF)
+        {
+            struct s_fs_node data_node;
+
+            ++node->index.nb_keys;
+            for (size_t j = node->index.nb_keys - 1; j > i; --j)
+            {
+                node->index.keys[j] = node->index.keys[j - 1];
+                node->index.children[j] = node->index.children[j - 1];
+            }
+
+            node->index.keys[i].size = strlen(key);
+            strcpy(node->index.keys[i].data, key);
+            fseek(g_fs->file, 0, SEEK_END);
+            node->index.children[i] = ftell(g_fs->file);
+            data_node.block.size = strlen(data);
+            fwrite(&data_node.block, sizeof(data_node.block), 1, g_fs->file);
+            fwrite(data, data_node.block.size + 1, 1, g_fs->file);
+            fflush(g_fs->file);
+
+            writeback = true;
+        }
+        else
+        {
+            struct s_fs_node child;
+            struct s_fs_node new_node;
+
+            fs_read_index(node->index.children[i], &child);
+            if (fs_add_recurse(key, data, node->index.children[i], &child, &new_node))
+            {
+                // Add splitted node
+                ++node->index.nb_keys;
+                for (size_t j = node->index.nb_keys - 1; j > i; --j)
+                {
+                    node->index.keys[j] = node->index.keys[j - 1];
+                    node->index.children[j] = node->index.children[j - 1];
+                }
+
+                node->index.keys[i].size = new_node.index.keys[0].size;
+                strcpy(node->index.keys[i].data, new_node.index.keys[0].data);
+                fseek(g_fs->file, 0, SEEK_END);
+                node->index.children[i] = ftell(g_fs->file);
+                fwrite(&new_node, sizeof(new_node.type) + sizeof(new_node.index), 1, g_fs->file);
+                fflush(g_fs->file);
+
+                writeback = true;
+            }
+        }
+        
+        // Split if necessary
+        if (node->index.nb_keys > BTREE_ORDER - 1)
+        {
+            memset(r_node, 0, sizeof(struct s_fs_node));
+            r_node->type = node->type;
+            r_node->index.nb_keys = node->index.nb_keys % 2 + node->index.nb_keys / 2;
+            for (size_t j = 1; j <= r_node->index.nb_keys; ++j)
+            {
+                r_node->index.keys[r_node->index.nb_keys - j].size = node->index.keys[node->index.nb_keys - j].size;
+                strcpy(r_node->index.keys[r_node->index.nb_keys - j].data, node->index.keys[node->index.nb_keys - j].data);
+                r_node->index.children[r_node->index.nb_keys - j] = node->index.children[node->index.nb_keys - j];
+            }
+
+            for (size_t j = node->index.nb_keys - 1; j >= node->index.nb_keys / 2; --j)
+                node->index.children[j] = 0;
+            node->index.nb_keys = node->index.nb_keys / 2;
+
+            writeback = true;
+            splitted = true;
+        }
+
+        // Write node back
+        if (writeback)
+            fs_write_index(node_offset, node);
+
     }
     
-    result = fseek(g_fs_file->file, g_fs_file->header.root, SEEK_SET);
-    if (result < 0)
-    {
-        fprintf(stderr, "Unable to seek.\n");
-        return 0;
-    }
-
-    result = fread(&node.type, sizeof(node.type), 1, g_fs_file->file);
-    if (result != 1)
-    {
-        fprintf(stderr, "Unable to read.\n");
-        return 0;
-    }
-
-    // TODO: Unhack here
-    result = fread(&node.index, sizeof(node.index), 1, g_fs_file->file);
-    if (result != 1)
-    {
-        fprintf(stderr, "Unable to read.\n");
-        return 0;
-    }
-
-    if (node.index.nb_keys < BTREE_ORDER - 1)
-    {
-        struct s_fs_node    data_node;
-
-        ++node.index.nb_keys;
-        node.index.keys[node.index.nb_keys - 1].size = strlen(key);
-        strncpy(node.index.keys[node.index.nb_keys - 1].data, key, node.index.keys[node.index.nb_keys - 1].size * sizeof(char));
-        ++node.index.nb_children;
-        fseek(g_fs_file->file, 0, SEEK_END);
-        node.index.children[node.index.nb_children - 1] = ftell(g_fs_file->file);
-        fseek(g_fs_file->file, g_fs_file->header.root + sizeof(node.type), SEEK_SET);
-        fwrite(&node.index, sizeof(node.index), 1, g_fs_file->file);
-        
-        fseek(g_fs_file->file, 0, SEEK_END);
-        data_node.type = NODE_BLOCK;
-        data_node.block.size = strlen(data);
-        fwrite(&data_node.type, sizeof(data_node.type), 1, g_fs_file->file);
-        fwrite(&data_node.block, sizeof(data_node.block), 1, g_fs_file->file);
-        fwrite(data, data_node.block.size, 1, g_fs_file->file);
-    }
-
-    fflush(g_fs_file->file);
-
-    return 1;
+    return splitted;
 }
 
-int fs_delete(const char* key)
+bool fs_add(const char* key, const char* data)
 {
-    return 0;
+    struct s_fs_node    root;
+    struct s_fs_node    node;
+
+    if (g_fs == NULL)
+    {
+        fprintf(stderr, "A file must be opened before calling fs_add().\n");
+        return false;
+    }
+    
+    if (!fs_read_index(g_fs->header.root, &root))
+        return false;
+
+    if (fs_add_recurse(key, data, g_fs->header.root, &root, &node))
+    {
+        struct s_fs_node new_root;
+
+        memset(&new_root, 0, sizeof(struct s_fs_node));
+        new_root.type = NODE_INDEX;
+        new_root.index.nb_keys = 1;
+        new_root.index.keys[0].size = node.index.keys[0].size;
+        strcpy(new_root.index.keys[0].data, node.index.keys[0].data);
+        new_root.index.children[0] = g_fs->header.root;
+        fseek(g_fs->file, 0, SEEK_END);
+        new_root.index.children[1] = ftell(g_fs->file);
+        fwrite(&node, sizeof(node.type) + sizeof(node.index), 1, g_fs->file);
+        fflush(g_fs->file);
+        fseek(g_fs->file, 0, SEEK_END);
+        g_fs->header.root = ftell(g_fs->file);
+        fwrite(&new_root, sizeof(new_root.type) + sizeof(new_root.index), 1, g_fs->file);
+        fflush(g_fs->file);
+        fseek(g_fs->file, 0, SEEK_SET);
+        fwrite(&g_fs->header, sizeof(struct s_fs_header), 1, g_fs->file);
+        fflush(g_fs->file);
+    }
+
+    return true;
+}
+
+bool fs_delete(const char* key)
+{
+    return false;
 }
 

@@ -92,6 +92,9 @@ static int handle_client(int client_socket)
                     fprintf(stderr, "Unable to send value.\n");
                     return 3;
                 }
+
+                // Allocated by the filesystem
+                free(value);
             }
         }
 
