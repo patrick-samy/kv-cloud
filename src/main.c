@@ -47,7 +47,9 @@ int main(int argc, char** argv)
         result = getopt_long(argc, argv, "d", long_options, &option_index);
     }
 
-    fs_open("kvcloud.fs");
+    if (!fs_open("kvcloud.fs"))
+        return 2;
+
     printf("Starting server on port %d.\n", port);
     result = start_server(port);
 

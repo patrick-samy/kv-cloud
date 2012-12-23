@@ -11,16 +11,28 @@ static bool fs_read_index(off_t offset, struct s_fs_node* node)
 {
     int result;
 
-    fseek(g_fs->file, offset, SEEK_SET);
-    fread(&node->type, sizeof(node->type), 1, g_fs->file);
+    result = fseek(g_fs->file, offset, SEEK_SET);
+    if (result < 0)
+    {
+        fprintf(stderr, "Unable to seek to index node.\n");
+        return false;
+    }
 
-    if (node->type & NODE_INDEX)
-        result = fread(&node->index, sizeof(node->index), 1, g_fs->file);
-
+    result = fread(&node->type, sizeof(node->type), 1, g_fs->file);
     if (result != 1)
     {
-        fprintf(stderr, "Unable to read node.\n");
+        fprintf(stderr, "Unable to read node type.\n");
         return false;
+    }
+
+    if (node->type & NODE_INDEX)
+    {
+        result = fread(&node->index, sizeof(node->index), 1, g_fs->file);
+        if (result != 1)
+        {
+            fprintf(stderr, "Unable to read index.\n");
+            return false;
+        }
     }
 
     return true;
@@ -30,19 +42,35 @@ static bool fs_write_index(off_t offset, struct s_fs_node* node)
 {
     int result;
 
-    fseek(g_fs->file, offset, SEEK_SET);
-    fwrite(&node->type, sizeof(node->type), 1, g_fs->file);
-
-    if (node->type & NODE_INDEX)
-        result = fwrite(&node->index, sizeof(node->index), 1, g_fs->file);
-    
-    if (result != 1)
+    result = fseek(g_fs->file, offset, SEEK_SET);
+    if (result < 0)
     {
-        fprintf(stderr, "Unable to read node.\n");
+        fprintf(stderr, "Unable to seek to index node.\n");
         return false;
     }
+
+    result = fwrite(&node->type, sizeof(node->type), 1, g_fs->file);
+    if (result != 1)
+    {
+        fprintf(stderr, "Unable to write node type.\n");
+    }
+
+    if (node->type & NODE_INDEX)
+    {
+        result = fwrite(&node->index, sizeof(node->index), 1, g_fs->file);
+        if (result != 1)
+        {
+            fprintf(stderr, "Unable to write index.\n");
+            return false;
+        }
+    }
     
-    fflush(g_fs->file);
+    result = fflush(g_fs->file);
+    if (result != 0)
+    {
+        fprintf(stderr, "Unable to flush fs file");
+        return false;
+    }
 
     return true;
 }
@@ -84,7 +112,12 @@ bool fs_init(const char* img_filepath)
         return false;
     }
 
-    fclose(f);
+    result = fclose(f);
+    if (result != 0)
+    {
+        fprintf(stderr, "Unable to close file.\n");
+        return false;
+    }
 
     return true;
    
@@ -103,20 +136,20 @@ bool fs_open(const char* img_filepath)
     g_fs = malloc(sizeof(fs_file_t));
     if (g_fs == NULL)
     {
-        fprintf(stderr, "Out of memory.\n");
+        fprintf(stderr, "Unable to allocate memory.\n");
         return false;
     }
 
     g_fs->file = fopen(img_filepath, "r+");
     if (g_fs->file == NULL)
     {
-        fprintf(stderr, "Unable to open file %s\n", img_filepath);
+        fprintf(stderr, "Unable to open file %s, the filesystem may have not been initialized.\n", img_filepath);
         free(g_fs);
         g_fs = NULL;
         return false;
     }
 
-    result  = fread(&g_fs->header, sizeof(struct s_fs_header), 1, g_fs->file);
+    result = fread(&g_fs->header, sizeof(struct s_fs_header), 1, g_fs->file);
     if (result != 1)
     {
         fprintf(stderr, "Unable to read fs header.\n");
@@ -154,7 +187,8 @@ static bool fs_search_recurse(const char*       key,
                               struct s_fs_node* node,
                               char**            data)
 {
-    // TODO: Handle error codes
+    int result;
+
     if (node->type & NODE_INDEX)
     {
         size_t  i;
@@ -173,10 +207,33 @@ static bool fs_search_recurse(const char*       key,
             {
                 struct s_fs_node data_node;
 
-                fseek(g_fs->file, node->index.children[i], SEEK_SET);
-                fread(&data_node.block, sizeof(data_node.block), 1, g_fs->file);
+                result = fseek(g_fs->file, node->index.children[i], SEEK_SET);
+                if (result < 0)
+                {
+                    fprintf(stderr, "Unable to seek to children index.\n");
+                    return false;
+                }
+
+                result = fread(&data_node.block, sizeof(data_node.block), 1, g_fs->file);
+                if (result != 1)
+                {
+                    fprintf(stderr, "Unable to read block node.\n");
+                    return false;
+                }
+
                 *data = malloc(data_node.block.size + 1);
-                fread(*data, data_node.block.size + 1, 1, g_fs->file);
+                if (*data == NULL)
+                {
+                    fprintf(stderr, "Unable to allocate memory for data block of %d bytes.\n", data_node.block.size + 1);
+                    return false;
+                }
+
+                result = fread(*data, data_node.block.size + 1, 1, g_fs->file);
+                if (result != 1)
+                {
+                    fprintf(stderr, "Unable to read data in block node.\n");
+                    return false;
+                }
 
                 return true;
             }
@@ -185,7 +242,8 @@ static bool fs_search_recurse(const char*       key,
         {
             struct s_fs_node child;
 
-            fs_read_index(node->index.children[i], &child);
+            if (!fs_read_index(node->index.children[i], &child))
+                return false;
             
             return fs_search_recurse(key, &child, data);
         }
@@ -219,10 +277,10 @@ static bool fs_add_recurse(const char*          key,
                            struct s_fs_node*    node,
                            struct s_fs_node*    r_node)
 {
-    bool splitted = false;
-    bool writeback = false;
+    int     result;
+    bool    splitted = false;
+    bool    writeback = false;
 
-    // TODO: Handle error codes
     if (node->type & NODE_INDEX)
     {
         size_t i;
@@ -246,12 +304,22 @@ static bool fs_add_recurse(const char*          key,
 
             node->index.keys[i].size = strlen(key);
             strcpy(node->index.keys[i].data, key);
-            fseek(g_fs->file, 0, SEEK_END);
+            result = fseek(g_fs->file, 0, SEEK_END);
+            if (result < 0)
+                fprintf(stderr, "Unable to seek to end of file.\n");
+
             node->index.children[i] = ftell(g_fs->file);
             data_node.block.size = strlen(data);
-            fwrite(&data_node.block, sizeof(data_node.block), 1, g_fs->file);
-            fwrite(data, data_node.block.size + 1, 1, g_fs->file);
-            fflush(g_fs->file);
+            result = fwrite(&data_node.block, sizeof(data_node.block), 1, g_fs->file);
+            if (result != 1)
+                fprintf(stderr, "Unable to write block node.\n");
+
+            result = fwrite(data, data_node.block.size + 1, 1, g_fs->file);
+            if (result != 1)
+                fprintf(stderr, "Unable to write block data.\n");
+
+            if (fflush(g_fs->file) < 0)
+                fprintf(stderr, "Unable to flush to file.\n");
 
             writeback = true;
         }
@@ -273,10 +341,18 @@ static bool fs_add_recurse(const char*          key,
 
                 node->index.keys[i].size = new_node.index.keys[0].size;
                 strcpy(node->index.keys[i].data, new_node.index.keys[0].data);
-                fseek(g_fs->file, 0, SEEK_END);
+                result = fseek(g_fs->file, 0, SEEK_END);
+                if (result < 0)
+                    fprintf(stderr, "Unable to flush to file.\n");
+
                 node->index.children[i] = ftell(g_fs->file);
-                fwrite(&new_node, sizeof(new_node.type) + sizeof(new_node.index), 1, g_fs->file);
-                fflush(g_fs->file);
+                result = fwrite(&new_node, sizeof(new_node.type) + sizeof(new_node.index), 1, g_fs->file);
+                if (result != 1)
+                    fprintf(stderr, "Unable to write node type.\n");
+
+                result = fflush(g_fs->file);
+                if (result < 0)
+                    fprintf(stderr, "Unable to flush to file.\n");
 
                 writeback = true;
             }
@@ -314,6 +390,7 @@ static bool fs_add_recurse(const char*          key,
 
 bool fs_add(const char* key, const char* data)
 {
+    int                 result;
     struct s_fs_node    root;
     struct s_fs_node    node;
 
@@ -336,17 +413,70 @@ bool fs_add(const char* key, const char* data)
         new_root.index.keys[0].size = node.index.keys[0].size;
         strcpy(new_root.index.keys[0].data, node.index.keys[0].data);
         new_root.index.children[0] = g_fs->header.root;
-        fseek(g_fs->file, 0, SEEK_END);
+        result = fseek(g_fs->file, 0, SEEK_END);
+        if (result < 0)
+        {
+            fprintf(stderr, "Unable to seek to end of file.\n");
+            return false;
+        }
+
         new_root.index.children[1] = ftell(g_fs->file);
-        fwrite(&node, sizeof(node.type) + sizeof(node.index), 1, g_fs->file);
-        fflush(g_fs->file);
-        fseek(g_fs->file, 0, SEEK_END);
+        result = fwrite(&node, sizeof(node.type) + sizeof(node.index), 1, g_fs->file);
+        if (result != 1)
+        {
+            fprintf(stderr, "Unable to write node type.\n");
+            return false;
+        }
+
+        result = fflush(g_fs->file);
+        if (result < 0)
+        {
+            fprintf(stderr, "Unable to flush file.\n");
+            return false;
+        }
+
+        result = fseek(g_fs->file, 0, SEEK_END);
+        if (result < 0)
+        {
+            fprintf(stderr, "Unable to seek to end of file.\n");
+            return false;
+        }
+
         g_fs->header.root = ftell(g_fs->file);
-        fwrite(&new_root, sizeof(new_root.type) + sizeof(new_root.index), 1, g_fs->file);
-        fflush(g_fs->file);
-        fseek(g_fs->file, 0, SEEK_SET);
-        fwrite(&g_fs->header, sizeof(struct s_fs_header), 1, g_fs->file);
-        fflush(g_fs->file);
+        result = fwrite(&new_root, sizeof(new_root.type) + sizeof(new_root.index), 1, g_fs->file);
+        if (result != 1)
+        {
+            fprintf(stderr, "Unable to tell current position in file.\n");
+            return false;
+        }
+
+        result = fflush(g_fs->file);
+        if (result < 0)
+        {
+            fprintf(stderr, "Unable to flush to file.\n");
+            return false;
+        }
+
+        result = fseek(g_fs->file, 0, SEEK_SET);
+        if (result < 0)
+        {
+            fprintf(stderr, "Unable to seek to beginning of file.\n");
+            return false;
+        }
+
+        result = fwrite(&g_fs->header, sizeof(struct s_fs_header), 1, g_fs->file);
+        if (result != 1)
+        {
+            fprintf(stderr, "Unable to write filesystem header.\n");
+            return false;
+        }
+
+        result = fflush(g_fs->file);
+        if (result < 0)
+        {
+            fprintf(stderr, "Unable to flush to file.\n");
+            return false;
+        }
     }
 
     return true;
