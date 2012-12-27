@@ -73,17 +73,17 @@ void kvcloud_disconnect()
     g_client_socket = -1;
 }
 
-char* kvcloud_get(const char* key)
+size_t kvcloud_get(const char* key, void** value)
 {
     int                         result;
     struct s_request_header     header;
     struct s_response_header    response_header;
-    char*                       value;
 
     if (g_client_socket < 0)
     {
         fprintf(stderr, "A connection must be established before calling kvcloud_get().\n");
-        return NULL;
+        *value = NULL;
+        return 0;
     }
 
     memset(&header, 0, sizeof(struct s_request_header));
@@ -93,49 +93,53 @@ char* kvcloud_get(const char* key)
     if (result != sizeof(header.command) + sizeof(header.k))
     {
         fprintf(stderr, "Unable to send get request.\n");
-        return NULL;
+        *value = NULL;
+        return 0;
     }
 
     result = send(g_client_socket, key, header.k.key_length, 0);
     if (result != header.k.key_length)
     {
         fprintf(stderr, "Unable to send key for request.\n");
-        return NULL;
+        *value = NULL;
+        return 0;
     }
 
     result = recv(g_client_socket, &response_header, sizeof(struct s_response_header), MSG_WAITALL);
     if (result != sizeof(struct s_response_header))
     {
         fprintf(stderr, "Unable to receive get response.\n");
-        return NULL;
+        *value = NULL;
+        return 0;
     }
 
     if (response_header.value_length == 0)
     {
         fprintf(stderr, "Unable to find value for key %s.\n", key);
-        return NULL;
+        *value = NULL;
+        return 0;
     }
 
-    value = malloc(1 + response_header.value_length * sizeof(char));
-    if (value == NULL)
+    *value = malloc(response_header.value_length * sizeof(char));
+    if (*value == NULL)
     {
         fprintf(stderr, "Out of memory while allocating value buffer of %d bytes.\n", response_header.value_length);
-        return NULL;
+        *value = NULL;
+        return 0;
     }
 
-    result = recv(g_client_socket, value, response_header.value_length, MSG_WAITALL);
+    result = recv(g_client_socket, *value, response_header.value_length, MSG_WAITALL);
     if (result != response_header.value_length)
     {
         fprintf(stderr, "Unable to receive value.\n");
-        return NULL;
+        *value = NULL;
+        return 0;
     }
 
-    value[response_header.value_length] = 0;
-
-    return value;
+    return response_header.value_length;
 }
 
-void kvcloud_set(const char* key, const char* value)
+void kvcloud_set(const char* key, const void* value, size_t nb_bytes)
 {
     int                         result;
     struct s_request_header     header;

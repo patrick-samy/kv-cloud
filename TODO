@@ -1,3 +1,4 @@
+- Factorize Btree code between fs and memcache.
 - Add key size check in the API.
 - Handle response when calling set with an already present key.
 - Add multithreading support for the server (client queue + pool).

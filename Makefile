@@ -11,7 +11,7 @@ CLEAN       :=
 # Flags
 CPPFLAGS    ?=
 CFLAGS      ?= -Wall -Werror
-LDFLAGS     ?=
+LDFLAGS     ?= -lpthread
 
 #Default rule
 all: targets

@@ -48,8 +48,8 @@ int main(int argc, char** argv)
                 continue;
             }
 
-            value = kvcloud_get(key);
-            printf("%s => %s\n", key, value);
+            len = kvcloud_get(key, (void**) &value);
+            printf("%s => %.*s\n", key, len, value);
         }
         else if (strcmp(command, "set") == 0)
         {
@@ -64,7 +64,7 @@ int main(int argc, char** argv)
                 continue;
             }
 
-            kvcloud_set(key, value);
+            kvcloud_set(key, value, strlen(value));
         }
         else if (strcmp(command, "delete") == 0)
         {

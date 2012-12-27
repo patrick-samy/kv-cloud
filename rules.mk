@@ -5,7 +5,7 @@ BINARY                  := kvcloud
 $(BINARY): CPPFLAGS     += -Iinclude -Isrc
 $(BINARY): CFLAGS       += -std=c11
 # Add sources
-SOURCES                 := src/main.c src/server.c src/storage.c src/filesystem.c
+SOURCES                 := src/main.c src/server.c src/storage.c src/filesystem.c src/memcache.c
 
 OBJS                    := $(SOURCES:%.c=%.o)
 DEPS                    := $(SOURCES:%.c=%.d)

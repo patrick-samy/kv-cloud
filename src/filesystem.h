@@ -7,15 +7,13 @@
 
 # include "config.h"
 
-# define BTREE_ORDER        4
+# define FS_NODE_INDEX         0x1
+# define FS_NODE_BLOCK         0x2
+# define FS_NODE_LEAF          0x4
 
-# define NODE_INDEX         0x1
-# define NODE_BLOCK         0x2
-# define FLAG_LEAF          0x4
+# define FS_CHILDREN_PRESENT   0x1
 
-# define CHILDREN_PRESENT   0x1
-
-struct s_key
+struct s_fs_key
 {
     uint8_t size;
     char    data[KEY_SIZE + 1]; 
@@ -28,9 +26,9 @@ struct s_fs_node
     {
         struct
         {
-            size_t          nb_keys;
-            struct s_key    keys[BTREE_ORDER];
-            off_t           children[BTREE_ORDER + 1];
+            uint8_t         nb_keys;
+            struct s_fs_key keys[FS_BPTREE_ORDER];
+            off_t           children[FS_BPTREE_ORDER + 1];
         } index __attribute__((packed));
         struct
         {
@@ -54,8 +52,8 @@ typedef struct
 bool fs_init(const char* img_filepath);
 bool fs_open(const char* img_filepath);
 bool fs_close();
-char* fs_search(const char* key);
-bool fs_add(const char* key, const char* data);
+size_t fs_search(const char* key, void** data);
+bool fs_add(const char* key, const void* data, size_t nb_bytes);
 bool fs_delete(const char* key);
 
 #endif /* !FILESYSTEM_H_ */

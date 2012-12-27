@@ -25,7 +25,7 @@ static bool fs_read_index(off_t offset, struct s_fs_node* node)
         return false;
     }
 
-    if (node->type & NODE_INDEX)
+    if (node->type & FS_NODE_INDEX)
     {
         result = fread(&node->index, sizeof(node->index), 1, g_fs->file);
         if (result != 1)
@@ -55,7 +55,7 @@ static bool fs_write_index(off_t offset, struct s_fs_node* node)
         fprintf(stderr, "Unable to write node type.\n");
     }
 
-    if (node->type & NODE_INDEX)
+    if (node->type & FS_NODE_INDEX)
     {
         result = fwrite(&node->index, sizeof(node->index), 1, g_fs->file);
         if (result != 1)
@@ -101,7 +101,7 @@ bool fs_init(const char* img_filepath)
     }
     
     memset(&root, 0, sizeof(root.type) + sizeof(root.index));
-    root.type = NODE_INDEX | FLAG_LEAF;
+    root.type = FS_NODE_INDEX | FS_NODE_LEAF;
     root.index.nb_keys = 0;
 
     result = fwrite(&root, sizeof(root.type) + sizeof(root.index), 1, f);
@@ -185,11 +185,12 @@ bool fs_close()
 
 static bool fs_search_recurse(const char*       key,
                               struct s_fs_node* node,
-                              char**            data)
+                              void**            data,
+                              size_t*           nb_bytes)
 {
     int result;
 
-    if (node->type & NODE_INDEX)
+    if (node->type & FS_NODE_INDEX)
     {
         size_t  i;
         int     distance;
@@ -201,7 +202,7 @@ static bool fs_search_recurse(const char*       key,
                 break;
         }
         
-        if (node->type & FLAG_LEAF)
+        if (node->type & FS_NODE_LEAF)
         {
             if (distance == 0)
             {
@@ -221,16 +222,21 @@ static bool fs_search_recurse(const char*       key,
                     return false;
                 }
 
-                *data = malloc(data_node.block.size + 1);
+                *data = malloc(data_node.block.size);
+                *nb_bytes = data_node.block.size;
                 if (*data == NULL)
                 {
+                    *nb_bytes = 0;
                     fprintf(stderr, "Unable to allocate memory for data block of %d bytes.\n", data_node.block.size + 1);
                     return false;
                 }
 
-                result = fread(*data, data_node.block.size + 1, 1, g_fs->file);
+                result = fread(*data, data_node.block.size, 1, g_fs->file);
                 if (result != 1)
                 {
+                    free(*data);
+                    *data = NULL;
+                    *nb_bytes = 0;
                     fprintf(stderr, "Unable to read data in block node.\n");
                     return false;
                 }
@@ -245,17 +251,17 @@ static bool fs_search_recurse(const char*       key,
             if (!fs_read_index(node->index.children[i], &child))
                 return false;
             
-            return fs_search_recurse(key, &child, data);
+            return fs_search_recurse(key, &child, data, nb_bytes);
         }
     }
  
     return false;
 }
 
-char* fs_search(const char* key)
+size_t fs_search(const char* key, void** data)
 {
     struct s_fs_node    root;
-    char*               value = NULL;
+    size_t              nb_bytes = 0;
 
     if (g_fs == NULL)
     {
@@ -266,13 +272,14 @@ char* fs_search(const char* key)
     if (!fs_read_index(g_fs->header.root, &root))
         return false;
 
-    fs_search_recurse(key, &root, &value);
+    fs_search_recurse(key, &root, data, &nb_bytes);
     
-    return value;
+    return nb_bytes;
 }
 
 static bool fs_add_recurse(const char*          key,
-                           const char*          data,
+                           const void*          data,
+                           size_t               nb_bytes,
                            off_t                node_offset,
                            struct s_fs_node*    node,
                            struct s_fs_node*    r_node)
@@ -281,7 +288,7 @@ static bool fs_add_recurse(const char*          key,
     bool    splitted = false;
     bool    writeback = false;
 
-    if (node->type & NODE_INDEX)
+    if (node->type & FS_NODE_INDEX)
     {
         size_t i;
         
@@ -291,7 +298,7 @@ static bool fs_add_recurse(const char*          key,
                 break;
         }
         
-        if (node->type & FLAG_LEAF)
+        if (node->type & FS_NODE_LEAF)
         {
             struct s_fs_node data_node;
 
@@ -309,7 +316,7 @@ static bool fs_add_recurse(const char*          key,
                 fprintf(stderr, "Unable to seek to end of file.\n");
 
             node->index.children[i] = ftell(g_fs->file);
-            data_node.block.size = strlen(data);
+            data_node.block.size = nb_bytes;
             result = fwrite(&data_node.block, sizeof(data_node.block), 1, g_fs->file);
             if (result != 1)
                 fprintf(stderr, "Unable to write block node.\n");
@@ -329,7 +336,7 @@ static bool fs_add_recurse(const char*          key,
             struct s_fs_node new_node;
 
             fs_read_index(node->index.children[i], &child);
-            if (fs_add_recurse(key, data, node->index.children[i], &child, &new_node))
+            if (fs_add_recurse(key, data, nb_bytes, node->index.children[i], &child, &new_node))
             {
                 // Add splitted node
                 ++node->index.nb_keys;
@@ -359,7 +366,7 @@ static bool fs_add_recurse(const char*          key,
         }
         
         // Split if necessary
-        if (node->index.nb_keys > BTREE_ORDER - 1)
+        if (node->index.nb_keys > FS_BPTREE_ORDER - 1)
         {
             memset(r_node, 0, sizeof(struct s_fs_node));
             r_node->type = node->type;
@@ -388,7 +395,7 @@ static bool fs_add_recurse(const char*          key,
     return splitted;
 }
 
-bool fs_add(const char* key, const char* data)
+bool fs_add(const char* key, const void* data, size_t nb_bytes)
 {
     int                 result;
     struct s_fs_node    root;
@@ -403,12 +410,12 @@ bool fs_add(const char* key, const char* data)
     if (!fs_read_index(g_fs->header.root, &root))
         return false;
 
-    if (fs_add_recurse(key, data, g_fs->header.root, &root, &node))
+    if (fs_add_recurse(key, data, nb_bytes, g_fs->header.root, &root, &node))
     {
         struct s_fs_node new_root;
 
         memset(&new_root, 0, sizeof(struct s_fs_node));
-        new_root.type = NODE_INDEX;
+        new_root.type = FS_NODE_INDEX;
         new_root.index.nb_keys = 1;
         new_root.index.keys[0].size = node.index.keys[0].size;
         strcpy(new_root.index.keys[0].data, node.index.keys[0].data);

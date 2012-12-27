@@ -3,6 +3,7 @@
 
 #### Build instructions ####
 ```sh
+# tweaking can be done in config.h
 $ make [all | kvcloud | libkvcloud | client]
 ```
 
